@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView, Edge } from 'react-native-safe-area-context';
 import { colors, spacing } from '@/theme/tokens';
 
@@ -9,10 +9,21 @@ interface Props {
   edges?: Edge[];
   contentStyle?: ViewStyle;
   footer?: ReactNode;
+  /** Si se indica, habilita "deslizar para actualizar". */
+  onRefrescar?: () => void;
+  refrescando?: boolean;
 }
 
 /** Contenedor base de cada pantalla: fondo de marca, márgenes seguros y scroll opcional. */
-export function Pantalla({ children, scroll = true, edges = ['top'], contentStyle, footer }: Props) {
+export function Pantalla({
+  children,
+  scroll = true,
+  edges = ['top'],
+  contentStyle,
+  footer,
+  onRefrescar,
+  refrescando = false,
+}: Props) {
   return (
     <SafeAreaView style={styles.root} edges={edges}>
       {scroll ? (
@@ -20,6 +31,11 @@ export function Pantalla({ children, scroll = true, edges = ['top'], contentStyl
           contentContainerStyle={[styles.contenido, contentStyle]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            onRefrescar ? (
+              <RefreshControl refreshing={refrescando} onRefresh={onRefrescar} tintColor={colors.petalPink} />
+            ) : undefined
+          }
         >
           {children}
         </ScrollView>

@@ -31,9 +31,8 @@ export function AgendaAdminScreen() {
 
   const delDia = citas.filter((c) => partesNegocio(c.inicio).ymd === dia);
   const sinConfirmar = citas.filter((c) => c.estado === 'solicitada' && Date.parse(c.inicio) > Date.now()).length;
-  const ingresosSemana = citas
-    .filter((c) => c.estado === 'completada' && partesNegocio(c.inicio).ymd >= sumarDias(hoy, -6))
-    .reduce((acc, c) => acc + (c.montoCobrado ?? 0), 0);
+  const deHoy = citas.filter((c) => partesNegocio(c.inicio).ymd === hoy && c.estado !== 'cancelada');
+  const ingresoEstimadoHoy = deHoy.reduce((acc, c) => acc + c.montoTotal, 0);
 
   const ejecutar = async (cita: Cita, hacia: EstadoCita) => {
     if (hacia === 'inasistencia' || hacia === 'cancelada') {
@@ -56,7 +55,7 @@ export function AgendaAdminScreen() {
   return (
     <Pantalla onRefrescar={recargar}>
       <Text style={styles.titulo}>Agenda</Text>
-      <Text style={styles.sub}>Hola, {usuaria?.nombre.split(' ')[0]}. Así viene la semana.</Text>
+      <Text style={styles.sub}>Hola, {usuaria?.nombre.split(' ')[0]}. Así viene tu semana.</Text>
 
       <View style={styles.kpis}>
         <View style={styles.kpi}>
@@ -64,8 +63,12 @@ export function AgendaAdminScreen() {
           <Text style={styles.kpiEtiqueta}>sin confirmar</Text>
         </View>
         <View style={styles.kpi}>
-          <Text style={styles.kpiValor}>{formatoMonto(ingresosSemana)}</Text>
-          <Text style={styles.kpiEtiqueta}>cobrado en 7 días</Text>
+          <Text style={styles.kpiValor}>{deHoy.length}</Text>
+          <Text style={styles.kpiEtiqueta}>citas hoy</Text>
+        </View>
+        <View style={styles.kpi}>
+          <Text style={styles.kpiValor}>{formatoMonto(ingresoEstimadoHoy)}</Text>
+          <Text style={styles.kpiEtiqueta}>estimado hoy</Text>
         </View>
       </View>
 

@@ -42,8 +42,8 @@ export function crearSeed(ahora: Date = new Date()): SeedData {
   const futuras: Cita[] = [
     { id: 'cit_f1', clientaId: 'usr_1', nombre: 'Camila Pérez', srv: ['srv_3'], dias: 2, hora: '15:00' },
     { id: 'cit_f2', clientaId: 'usr_1', nombre: 'Camila Pérez', srv: ['srv_1', 'srv_4'], dias: 9, hora: '16:00' },
-    { id: 'cit_f3', clientaId: 'usr_4', nombre: 'Mariana López', srv: ['srv_2'], dias: 1, hora: '14:00' },
-    { id: 'cit_f4', clientaId: 'usr_5', nombre: 'Elena Castro', srv: ['srv_5'], dias: 2, hora: '16:30' },
+    { id: 'cit_f3', clientaId: 'usr_4', nombre: 'Mariana López', srv: ['srv_2'], dias: 0, hora: '15:00' },
+    { id: 'cit_f4', clientaId: 'usr_5', nombre: 'Elena Castro', srv: ['srv_5'], dias: 1, hora: '16:30' },
   ].map((f) =>
     construirCita({
       id: f.id,
@@ -55,8 +55,10 @@ export function crearSeed(ahora: Date = new Date()): SeedData {
       ahora,
     })
   );
-  // La segunda cita de Camila queda pendiente de confirmar, para mostrar ambos estados.
+  // Quedan pendientes de confirmar la segunda cita de Camila y la de hoy de Mariana,
+  // para mostrar ambos estados y las acciones de la administradora.
   futuras[1].estado = 'solicitada';
+  futuras[2].estado = 'solicitada';
 
   return {
     usuarias: clonar(base.usuarias),

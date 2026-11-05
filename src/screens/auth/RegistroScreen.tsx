@@ -1,19 +1,20 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Boton, CampoTexto, Encabezado, Logo, Pantalla } from '@/components';
+import { Boton, BotonGoogle, CampoTexto, Divisor, Encabezado, Logo, Pantalla } from '@/components';
 import { useAuth } from '@/context';
 import { useZodForm } from '@/hooks/useZodForm';
 import { AuthStackParams } from '@/navigation/tipos';
 import { registroSchema } from '@/schemas/auth';
-import { mensajeDeError } from '@/services';
+import { mensajeDeError, ServiceError } from '@/services';
 import { colors, fonts, radius } from '@/theme/tokens';
 
 type Props = NativeStackScreenProps<AuthStackParams, 'Registro'>;
 
 /** Registro de clientas. Sigue el mismo lenguaje visual del login de Figma. */
 export function RegistroScreen({ navigation }: Props) {
-  const { registro } = useAuth();
+  const { registro, loginConGoogle } = useAuth();
+  const [conGoogle, setConGoogle] = useState(false);
   const { valores, errores, enviando, cambiar, salir, enviar } = useZodForm(registroSchema, {
     nombre: '',
     correo: '',
@@ -33,6 +34,19 @@ export function RegistroScreen({ navigation }: Props) {
         setErrorGeneral(mensajeDeError(e));
       }
     });
+
+  const registrarConGoogle = async () => {
+    setErrorGeneral(null);
+    setConGoogle(true);
+    try {
+      // Si es su primera vez, el navegador la lleva a completar el teléfono.
+      await loginConGoogle();
+    } catch (e) {
+      if (!(e instanceof ServiceError && e.code === 'cancelado')) setErrorGeneral(mensajeDeError(e));
+    } finally {
+      setConGoogle(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -111,7 +125,9 @@ export function RegistroScreen({ navigation }: Props) {
           />
         </View>
 
-        <Boton titulo="Crear cuenta" onPress={onSubmit} cargando={enviando} />
+        <Boton titulo="Crear cuenta" onPress={onSubmit} cargando={enviando} deshabilitado={conGoogle} />
+        <Divisor />
+        <BotonGoogle titulo="Registrarme con Google" onPress={registrarConGoogle} cargando={conGoogle} deshabilitado={enviando} />
 
         <View style={styles.pie}>
           <Text style={styles.pieTexto}>¿Ya tenés cuenta?</Text>

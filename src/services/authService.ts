@@ -1,140 +1,294 @@
 /**
- * SERVICIO DE AUTENTICACIÓN (capa de datos)
+ * SERVICIO DE AUTENTICACIÓN — Firebase Authentication + perfil en Firestore
  *
- * Expone la misma interfaz que tendrá con Firebase Authentication en el Foro 2:
- * login, registro, restaurar sesión, cerrar sesión y actualizar perfil.
- * Las pantallas nunca llaman a este módulo directamente, sino a través de AuthContext.
+ * Firebase Auth guarda la identidad (correo/contraseña o cuenta de Google) y
+ * la sesión. Firestore guarda el perfil del negocio en usuarias/{uid}: nombre,
+ * teléfono, rol, inasistencias y código de referido. Las pantallas nunca llaman
+ * a este módulo directamente, sino a través de AuthContext.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  User,
+  verifyBeforeUpdateEmail,
+} from 'firebase/auth';
+import { getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { firebaseConfigurado, usarEmuladores } from '@/config/firebase';
 import { generarCodigoReferido } from '@/domain';
-import { loginSchema, registroSchema, LoginInput, RegistroInput } from '@/schemas/auth';
+import {
+  completarPerfilSchema,
+  CompletarPerfilInput,
+  LoginInput,
+  loginSchema,
+  RegistroInput,
+  registroSchema,
+} from '@/schemas/auth';
 import { perfilSchema, PerfilInput } from '@/schemas/perfil';
-import { Usuaria, UsuariaConHash } from '@/types';
-import { escribirDb, hashPassword, latencia, leerDb, nuevoId } from '@/data/localDb';
-import { ServiceError } from './errores';
+import { Usuaria } from '@/types';
+import * as actividad from './actividadService';
+import { conFirebase, ServiceError, traducirErrorFirebase } from './errores';
+import { obtenerDb } from './firebase/app';
+import { obtenerAuth } from './firebase/auth';
+import { colReferidos, refCodigo, refReferido, refUsuaria } from './firebase/colecciones';
+import { cerrarSesionGoogle, iniciarConGoogle } from './firebase/googleSignIn';
 
-const CLAVE_SESION = 'bcn:sesion';
-export const DURACION_SESION_HORAS = 8; // igual que el JWT de la web
+export type EstadoSesion =
+  | { tipo: 'sin_sesion' }
+  | { tipo: 'activa'; usuaria: Usuaria }
+  /** Entró con Google por primera vez: falta el teléfono para crear su perfil. */
+  | { tipo: 'perfil_pendiente'; nombre: string; correo: string };
 
-interface SesionGuardada {
-  usuariaId: string;
-  expiraEn: number;
+function asegurarConfig() {
+  if (!firebaseConfigurado && !usarEmuladores) {
+    throw new ServiceError('firebase_no_configurado', 'Firebase no está configurado. Revisá el archivo .env.');
+  }
 }
 
-function sanitizar(u: UsuariaConHash): Usuaria {
-  const { passwordHash: _omitido, ...publica } = u;
-  return publica;
+function proveedorDe(user: User): 'password' | 'google' {
+  return user.providerData.some((p) => p.providerId === 'google.com') ? 'google' : 'password';
 }
 
-async function guardarSesion(usuariaId: string): Promise<void> {
-  const sesion: SesionGuardada = {
-    usuariaId,
-    expiraEn: Date.now() + DURACION_SESION_HORAS * 60 * 60 * 1000,
+/** Mientras se crea la cuenta, Auth ya tiene usuario pero el perfil todavía no existe. */
+let creandoPerfil = false;
+
+/**
+ * Observa la sesión de Firebase y el documento de perfil de la usuaria.
+ * Cualquier cambio en usuarias/{uid} (por ejemplo, la administradora suma una
+ * inasistencia) llega a la app sin recargar.
+ */
+export function observarSesion(alCambiar: (estado: EstadoSesion) => void): () => void {
+  if (!firebaseConfigurado && !usarEmuladores) {
+    alCambiar({ tipo: 'sin_sesion' });
+    return () => {};
+  }
+  const auth = obtenerAuth();
+  let dejarDeObservarPerfil: (() => void) | null = null;
+
+  const dejarDeObservarAuth = onAuthStateChanged(auth, (user) => {
+    dejarDeObservarPerfil?.();
+    dejarDeObservarPerfil = null;
+    if (!user) return alCambiar({ tipo: 'sin_sesion' });
+
+    dejarDeObservarPerfil = onSnapshot(
+      refUsuaria(user.uid),
+      (snap) => {
+        if (!snap.exists()) {
+          if (creandoPerfil) return; // el registro escribe el perfil en un instante
+          return alCambiar({
+            tipo: 'perfil_pendiente',
+            nombre: user.displayName ?? '',
+            correo: user.email ?? '',
+          });
+        }
+        const usuaria = { id: snap.id, ...snap.data() } as Usuaria;
+        // Si cambió su correo con el enlace de verificación, se sincroniza el perfil.
+        if (user.email && usuaria.correo !== user.email.toLowerCase()) {
+          updateDoc(refUsuaria(user.uid), { correo: user.email.toLowerCase() }).catch(() => {});
+        }
+        alCambiar({ tipo: 'activa', usuaria });
+      },
+      (e) => {
+        if (__DEV__) console.warn('[auth] perfil', e);
+        alCambiar({ tipo: 'sin_sesion' });
+      }
+    );
+  });
+
+  return () => {
+    dejarDeObservarPerfil?.();
+    dejarDeObservarAuth();
   };
-  await AsyncStorage.setItem(CLAVE_SESION, JSON.stringify(sesion));
 }
 
-export async function login(datos: LoginInput): Promise<Usuaria> {
+export async function login(datos: LoginInput): Promise<void> {
   // La validación se repite aquí aunque la pantalla ya validó: segunda barrera.
   const parsed = loginSchema.safeParse(datos);
   if (!parsed.success) throw new ServiceError('validacion', parsed.error.issues[0].message);
+  asegurarConfig();
 
-  await latencia(700);
-  const db = await leerDb();
-  const correo = parsed.data.correo.toLowerCase();
-  const usuaria = db.usuarias.find((u) => u.correo.toLowerCase() === correo);
-  const hash = await hashPassword(correo, parsed.data.password);
-
-  // Mismo mensaje para correo inexistente y contraseña incorrecta: no se revela cuál falló.
-  if (!usuaria || usuaria.passwordHash !== hash) {
-    throw new ServiceError('credenciales_invalidas', 'Correo o contraseña incorrectos');
-  }
-
-  await guardarSesion(usuaria.id);
-  return sanitizar(usuaria);
+  const cred = await conFirebase(() =>
+    signInWithEmailAndPassword(obtenerAuth(), parsed.data.correo.toLowerCase(), parsed.data.password)
+  );
+  actividad.registrar(cred.user.uid, 'inicio_sesion', 'Iniciaste sesión con tu correo');
 }
 
-export async function registro(datos: RegistroInput): Promise<Usuaria> {
+export async function loginConGoogle(): Promise<void> {
+  asegurarConfig();
+  const cred = await conFirebase(() => iniciarConGoogle());
+  const perfil = await getDoc(refUsuaria(cred.user.uid)).catch(() => null);
+  if (perfil?.exists()) actividad.registrar(cred.user.uid, 'inicio_sesion', 'Iniciaste sesión con Google');
+}
+
+export async function recuperarPassword(correo: string): Promise<void> {
+  const parsed = loginSchema.shape.correo.safeParse(correo);
+  if (!parsed.success) throw new ServiceError('validacion', 'Escribí tu correo para enviarte el enlace');
+  asegurarConfig();
+  try {
+    await sendPasswordResetEmail(obtenerAuth(), parsed.data.toLowerCase());
+  } catch (e) {
+    // Si el correo no existe se responde igual, para no revelar qué cuentas hay.
+    const err = traducirErrorFirebase(e);
+    if (err.code !== 'credenciales_invalidas') throw err;
+  }
+}
+
+/** Busca un código libre: CAMI2026, y si ya existe, CAMA2026, CAMB2026… */
+async function generarCodigoUnico(nombre: string): Promise<string> {
+  const usados: string[] = [];
+  for (let i = 0; i < 27; i++) {
+    const codigo = generarCodigoReferido(nombre, usados);
+    const existe = await getDoc(refCodigo(codigo));
+    if (!existe.exists()) return codigo;
+    usados.push(codigo);
+  }
+  throw new ServiceError('red', 'No se pudo generar tu código de referido. Intentá de nuevo.');
+}
+
+async function validarCodigoReferido(codigo?: string): Promise<string | undefined> {
+  if (!codigo) return undefined;
+  const snap = await conFirebase(() => getDoc(refCodigo(codigo)));
+  if (!snap.exists()) throw new ServiceError('codigo_referido_invalido', 'El código de referido no existe');
+  return codigo;
+}
+
+/**
+ * Crea el perfil en Firestore con una escritura atómica (batch): el perfil, la
+ * reserva del código de referido y, si aplica, el registro de quién la refirió.
+ * Las reglas de seguridad verifican que las tres escrituras sean coherentes.
+ */
+async function crearPerfil(
+  user: User,
+  datos: { nombre: string; telefono: string; referidaPor?: string }
+): Promise<Usuaria> {
+  const codigoReferido = await generarCodigoUnico(datos.nombre);
+  const usuaria: Usuaria = {
+    id: user.uid,
+    nombre: datos.nombre.trim(),
+    correo: (user.email ?? '').toLowerCase(),
+    telefono: datos.telefono,
+    rol: 'clienta', // el registro público nunca crea administradoras (lo exigen las reglas)
+    inasistencias: 0,
+    codigoReferido,
+    proveedor: proveedorDe(user),
+    creadaEn: new Date().toISOString(),
+    ...(datos.referidaPor ? { referidaPor: datos.referidaPor } : {}),
+  };
+  const { id: _id, ...perfil } = usuaria;
+
+  const batch = writeBatch(obtenerDb());
+  batch.set(refUsuaria(user.uid), { ...perfil, actualizadaEn: serverTimestamp() });
+  batch.set(refCodigo(codigoReferido), { uid: user.uid });
+  if (datos.referidaPor) {
+    batch.set(refReferido(user.uid), {
+      codigoReferente: datos.referidaPor,
+      nombre: usuaria.nombre,
+      creadaEn: usuaria.creadaEn,
+    });
+  }
+  await batch.commit();
+  actividad.registrar(
+    user.uid,
+    'registro',
+    datos.referidaPor ? `Creaste tu cuenta con el código ${datos.referidaPor}` : 'Creaste tu cuenta en Black Cat Nails'
+  );
+  return usuaria;
+}
+
+export async function registro(datos: RegistroInput): Promise<void> {
   const parsed = registroSchema.safeParse(datos);
   if (!parsed.success) throw new ServiceError('validacion', parsed.error.issues[0].message);
+  asegurarConfig();
   const d = parsed.data;
 
-  await latencia(700);
-  const db = await leerDb();
-  const correo = d.correo.toLowerCase();
+  const referidaPor = await validarCodigoReferido(d.codigoReferido || undefined);
 
-  if (db.usuarias.some((u) => u.correo.toLowerCase() === correo)) {
-    throw new ServiceError('correo_duplicado', 'Ya existe una cuenta con ese correo');
+  creandoPerfil = true;
+  try {
+    const cred = await conFirebase(() =>
+      createUserWithEmailAndPassword(obtenerAuth(), d.correo.toLowerCase(), d.password)
+    );
+    try {
+      await updateProfile(cred.user, { displayName: d.nombre.trim() });
+      await crearPerfil(cred.user, { nombre: d.nombre, telefono: d.telefono, referidaPor });
+    } catch (e) {
+      // Si el perfil no se pudo guardar, se borra la cuenta para no dejarla a medias.
+      await cred.user.delete().catch(() => {});
+      throw traducirErrorFirebase(e);
+    }
+  } finally {
+    creandoPerfil = false;
   }
-  if (d.codigoReferido && !db.usuarias.some((u) => u.codigoReferido === d.codigoReferido)) {
-    throw new ServiceError('codigo_referido_invalido', 'El código de referido no existe');
-  }
-
-  const nueva: UsuariaConHash = {
-    id: nuevoId('usr'),
-    nombre: d.nombre.trim(),
-    correo,
-    telefono: d.telefono,
-    rol: 'clienta', // el registro público nunca crea administradoras
-    inasistencias: 0,
-    codigoReferido: generarCodigoReferido(d.nombre, db.usuarias.map((u) => u.codigoReferido)),
-    referidaPor: d.codigoReferido || undefined,
-    creadaEn: new Date().toISOString(),
-    passwordHash: await hashPassword(correo, d.password),
-  };
-
-  await escribirDb((db) => {
-    db.usuarias.push(nueva);
-  });
-  await guardarSesion(nueva.id);
-  return sanitizar(nueva);
 }
 
-/** Devuelve la usuaria de la sesión guardada, o null si no hay sesión o ya expiró. */
-export async function restaurarSesion(): Promise<Usuaria | null> {
-  const guardada = await AsyncStorage.getItem(CLAVE_SESION);
-  if (!guardada) return null;
+/** Primer ingreso con Google: completa el teléfono (y código de referido) que Google no da. */
+export async function completarPerfil(datos: CompletarPerfilInput): Promise<void> {
+  const parsed = completarPerfilSchema.safeParse(datos);
+  if (!parsed.success) throw new ServiceError('validacion', parsed.error.issues[0].message);
+  const user = obtenerAuth().currentUser;
+  if (!user) throw new ServiceError('sesion_expirada', 'Tu sesión expiró. Volvé a iniciar sesión.');
 
-  const sesion = JSON.parse(guardada) as SesionGuardada;
-  if (Date.now() > sesion.expiraEn) {
-    await cerrarSesion();
-    return null;
-  }
-
-  const db = await leerDb();
-  const usuaria = db.usuarias.find((u) => u.id === sesion.usuariaId);
-  return usuaria ? sanitizar(usuaria) : null;
+  const referidaPor = await validarCodigoReferido(parsed.data.codigoReferido || undefined);
+  await conFirebase(() =>
+    crearPerfil(user, { nombre: parsed.data.nombre, telefono: parsed.data.telefono, referidaPor })
+  );
 }
 
 export async function cerrarSesion(): Promise<void> {
-  await AsyncStorage.removeItem(CLAVE_SESION);
+  await cerrarSesionGoogle();
+  await signOut(obtenerAuth());
 }
 
+/**
+ * Actualiza teléfono o foto en Firestore. El correo es parte de la identidad de
+ * Firebase Auth: se pide con verifyBeforeUpdateEmail y solo cambia cuando la
+ * clienta abre el enlace que le llega al correo nuevo.
+ *
+ * @returns un mensaje para mostrar si el cambio queda pendiente de verificación.
+ */
 export async function actualizarPerfil(
-  usuariaId: string,
+  usuaria: Usuaria,
   cambios: Partial<PerfilInput> & { fotoUri?: string }
-): Promise<Usuaria> {
+): Promise<string | null> {
   const parsed = perfilSchema.partial().safeParse(cambios);
   if (!parsed.success) throw new ServiceError('validacion', parsed.error.issues[0].message);
+  const user = obtenerAuth().currentUser;
+  if (!user || user.uid !== usuaria.id) {
+    throw new ServiceError('sesion_expirada', 'Tu sesión expiró. Volvé a iniciar sesión.');
+  }
 
-  await latencia(300);
-  const db = await escribirDb((db) => {
-    const u = db.usuarias.find((x) => x.id === usuariaId);
-    if (!u) throw new ServiceError('no_encontrado', 'No se encontró la cuenta');
-    const correo = parsed.data.correo?.toLowerCase();
-    if (correo && db.usuarias.some((x) => x.id !== usuariaId && x.correo.toLowerCase() === correo)) {
-      throw new ServiceError('correo_duplicado', 'Ya existe una cuenta con ese correo');
+  const correo = parsed.data.correo?.toLowerCase();
+  if (correo && correo !== usuaria.correo) {
+    if (proveedorDe(user) === 'google') {
+      throw new ServiceError('validacion', 'Tu correo es el de tu cuenta de Google y se cambia desde Google.');
     }
-    if (correo) u.correo = correo;
-    if (parsed.data.telefono) u.telefono = parsed.data.telefono;
-    if (cambios.fotoUri !== undefined) u.fotoUri = cambios.fotoUri;
-  });
-  return sanitizar(db.usuarias.find((u) => u.id === usuariaId)!);
+    await conFirebase(() => verifyBeforeUpdateEmail(user, correo));
+    actividad.registrar(user.uid, 'perfil_actualizado', `Pediste cambiar tu correo a ${correo}`);
+    return `Te enviamos un enlace a ${correo}. Tu correo cambia cuando lo abrás.`;
+  }
+
+  if (parsed.data.telefono && parsed.data.telefono !== usuaria.telefono) {
+    await conFirebase(() =>
+      updateDoc(refUsuaria(user.uid), { telefono: parsed.data.telefono, actualizadaEn: serverTimestamp() })
+    );
+    actividad.registrar(user.uid, 'perfil_actualizado', 'Actualizaste tu teléfono');
+  }
+
+  if (cambios.fotoUri !== undefined) {
+    await conFirebase(() =>
+      updateDoc(refUsuaria(user.uid), { fotoUri: cambios.fotoUri, actualizadaEn: serverTimestamp() })
+    );
+    actividad.registrar(user.uid, 'foto_actualizada', 'Cambiaste tu foto de perfil');
+  }
+  return null;
 }
 
-/** Usuarias públicas, para calcular referidas. */
-export async function listarUsuarias(): Promise<Usuaria[]> {
-  const db = await leerDb();
-  return db.usuarias.map(sanitizar);
+/** Clientas que se registraron con el código de la usuaria. */
+export async function listarReferidas(codigo: string): Promise<{ id: string; nombre: string }[]> {
+  const snap = await conFirebase(() => getDocs(query(colReferidos(), where('codigoReferente', '==', codigo))));
+  return snap.docs.map((d) => ({ id: d.id, nombre: d.data().nombre as string }));
 }

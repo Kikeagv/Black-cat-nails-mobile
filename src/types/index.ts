@@ -26,14 +26,10 @@ export interface Usuaria {
   inasistencias: number;      // contador precalculado
   codigoReferido: string;     // código propio para invitar amigas
   referidaPor?: string;       // código con el que se registró
-  fotoUri?: string;           // foto de perfil local
+  fotoUri?: string;           // miniatura JPEG en base64 (data URI)
   notasPrivadas?: string;
+  proveedor?: 'password' | 'google'; // cómo se autentica en Firebase Auth
   creadaEn: string;           // ISO
-}
-
-/** Nunca sale de la capa de datos. */
-export interface UsuariaConHash extends Usuaria {
-  passwordHash: string;
 }
 
 export interface ConsumoInsumo {
@@ -76,6 +72,16 @@ export interface Cita {
   montoCobrado?: number;
   fechaRetoque?: string;      // 'YYYY-MM-DD', se calcula al completar
   creadaEn: string;
+  // Campos que agrega Firestore para consultas y reglas de seguridad:
+  fecha?: string;             // 'YYYY-MM-DD' del inicio (zona del negocio)
+  inicioMs?: number;          // inicio en milisegundos, lo usa la regla de las 12 horas
+}
+
+/** Bloque ocupado dentro de agendaDias/{fecha}. No guarda datos de la clienta. */
+export interface BloqueAgenda {
+  inicio: string;
+  fin: string;
+  uid: string;
 }
 
 export interface Diseno {
@@ -109,4 +115,23 @@ export interface Insumo {
   minimo: number;
   costo: number;              // USD por unidad
   estado?: EstadoInsumo;
+}
+
+export type TipoActividad =
+  | 'registro'
+  | 'inicio_sesion'
+  | 'cita_creada'
+  | 'cita_cancelada'
+  | 'cita_estado'
+  | 'perfil_actualizado'
+  | 'foto_actualizada'
+  | 'favorito_agregado';
+
+/** Registro del historial de actividad (usuarias/{uid}/actividad). */
+export interface Actividad {
+  id: string;
+  tipo: TipoActividad;
+  descripcion: string;
+  fecha: string;              // ISO, viene del serverTimestamp
+  citaId?: string;
 }

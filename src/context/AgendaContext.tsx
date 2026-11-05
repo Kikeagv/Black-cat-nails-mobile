@@ -1,12 +1,15 @@
 /**
  * AgendaContext — citas de la usuaria y borrador del agendamiento.
  *
+ * Las citas llegan de Firestore con onSnapshot: si la administradora confirma
+ * una cita en su teléfono, la clienta lo ve al instante sin recargar.
+ *
  * El borrador guarda lo que la clienta va eligiendo en los pasos 1 a 3 para que
  * cada pantalla del flujo lea y escriba el mismo estado sin pasarlo por parámetros.
  */
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { citasService, mensajeDeError } from '@/services';
+import { citasService } from '@/services';
 import { Cita, EstadoCita } from '@/types';
 import { useAuth } from './AuthContext';
 
@@ -41,31 +44,40 @@ export function AgendaProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [borrador, setBorrador] = useState<BorradorCita>(BORRADOR_VACIO);
 
-  const recargar = useCallback(async () => {
-    if (!usuaria) return;
-    setCargando(true);
-    setError(null);
-    try {
-      // La administradora ve toda la agenda; la clienta solo sus citas.
-      const lista =
-        usuaria.rol === 'admin'
-          ? await citasService.listarTodas(usuaria)
-          : await citasService.listarCitasDeClienta(usuaria.id);
-      setCitas(lista);
-    } catch (e) {
-      setError(mensajeDeError(e));
-    } finally {
-      setCargando(false);
-    }
-  }, [usuaria]);
+  // Suscripción en tiempo real. Se rehace solo cuando cambia la cuenta o el rol.
+  const uid = usuaria?.id;
+  const rol = usuaria?.rol;
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    if (usuaria) recargar();
-    else {
+    if (!usuaria) {
       setCitas([]);
       setBorrador(BORRADOR_VACIO);
+      setCargando(true);
+      return;
     }
-  }, [usuaria, recargar]);
+    setCargando(true);
+    setError(null);
+    const alCambiar = (lista: Cita[]) => {
+      setCitas(lista);
+      setCargando(false);
+      setError(null);
+    };
+    const alFallar = (mensaje: string) => {
+      setError(mensaje);
+      setCargando(false);
+    };
+    // La administradora ve toda la agenda; la clienta solo sus citas.
+    return rol === 'admin'
+      ? citasService.observarTodas(usuaria, alCambiar, alFallar)
+      : citasService.observarCitasDeClienta(usuaria.id, alCambiar, alFallar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, rol, version]);
+
+  /** Vuelve a suscribirse (por ejemplo, después de un error de red). */
+  const recargar = useCallback(async () => {
+    setVersion((v) => v + 1);
+  }, []);
 
   const actualizarBorrador = useCallback((cambios: Partial<BorradorCita>) => {
     setBorrador((prev) => ({ ...prev, ...cambios }));
@@ -85,8 +97,10 @@ export function AgendaProvider({ children }: { children: ReactNode }) {
       notas: borrador.notas,
       imagenReferenciaUri: borrador.imagenReferenciaUri,
     });
-    // Actualización dinámica: la nueva cita aparece sin recargar toda la lista.
-    setCitas((prev) => [...prev, cita].sort((a, b) => a.inicio.localeCompare(b.inicio)));
+    // Actualización optimista: onSnapshot también la trae, pero así aparece sin esperar.
+    setCitas((prev) =>
+      prev.some((c) => c.id === cita.id) ? prev : [...prev, cita].sort((a, b) => a.inicio.localeCompare(b.inicio))
+    );
     return cita;
   }, [usuaria, borrador]);
 

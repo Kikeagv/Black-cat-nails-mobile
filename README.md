@@ -10,6 +10,13 @@ Aplicación móvil en **React Native (Expo)** para el emprendimiento de manicura
 | --- | --- | --- |
 | Enrique Alejandro García Villeda | GV200136 | `enrique-garcia` |
 
+## Entregables
+
+| Entrega | Video | Documento |
+| --- | --- | --- |
+| Etapa 3 · Avance 2 · Foro 2 (Firebase + módulos) | [youtu.be/A5dQKUByHSs](https://youtu.be/A5dQKUByHSs) | [Avance2_BlackCatNails_GV200136.pdf](Avance2_BlackCatNails_GV200136.pdf) |
+| Etapa 3 · Avance 1 · Foro 1 (Diseño UX/UI + React Native) | (entregado en el Foro 1) | [Avance1_BlackCatNails_GV200136.pdf](Avance1_BlackCatNails_GV200136.pdf) |
+
 ## Problema que resuelve
 
 La propietaria dedica entre 10 y 14 horas semanales a coordinar citas por mensajería, tiene entre 12 % y 19 % de inasistencias y ya sufrió citas encimadas. La app traslada el agendamiento a la clienta: consulta el catálogo y la galería, ve solo los horarios donde cabe el servicio que eligió, confirma su asistencia y recibe el aviso de retoque cuando le toca volver.

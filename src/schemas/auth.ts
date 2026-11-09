@@ -53,3 +53,12 @@ export const registroSchema = z
 
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegistroInput = z.infer<typeof registroSchema>;
+
+/** Datos que faltan cuando la clienta entra con Google por primera vez. */
+export const completarPerfilSchema = z.object({
+  nombre: registroSchema.shape.nombre,
+  telefono: registroSchema.shape.telefono,
+  codigoReferido: registroSchema.shape.codigoReferido,
+});
+
+export type CompletarPerfilInput = z.input<typeof completarPerfilSchema>;

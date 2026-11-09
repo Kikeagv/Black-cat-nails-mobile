@@ -3,7 +3,6 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Boton, Chip, EstadoCargando, EstadoError, EstadoVacio, Pantalla, TarjetaCita } from '@/components';
 import { useAgenda, useAuth } from '@/context';
 import { ETIQUETAS_ESTADO, formatoMonto, hoyNegocio, partesNegocio, sumarDias, TRANSICIONES, formatoFechaCorta } from '@/domain';
-import { reiniciarDb } from '@/data/localDb';
 import { mensajeDeError } from '@/services';
 import { colors, fonts, radius } from '@/theme/tokens';
 import { Cita, EstadoCita } from '@/types';
@@ -22,6 +21,7 @@ const ACCION: Partial<Record<EstadoCita, string>> = {
  * de estado que permite la máquina de estados (rol admin).
  */
 export function AgendaAdminScreen() {
+  // Las citas llegan en tiempo real desde Firestore (onSnapshot en AgendaContext).
   const { usuaria } = useAuth();
   const { citas, cargando, error, recargar, cambiarEstado } = useAgenda();
   const hoy = hoyNegocio();
@@ -120,19 +120,6 @@ export function AgendaAdminScreen() {
 
 export function PerfilAdminScreen() {
   const { usuaria, logout } = useAuth();
-  const { recargar } = useAgenda();
-
-  const restaurar = async () => {
-    const ok = await confirmar(
-      'Restaurar datos de demostración',
-      'Se borran las citas y cuentas creadas en este dispositivo y se vuelve al estado inicial.',
-      { aceptar: 'Restaurar', destructivo: true }
-    );
-    if (!ok) return;
-    await reiniciarDb();
-    await recargar();
-    avisar('Listo', 'Los datos de demostración se restauraron.');
-  };
 
   return (
     <Pantalla>
@@ -145,10 +132,9 @@ export function PerfilAdminScreen() {
         </View>
       </View>
       <Text style={styles.nota}>
-        La gestión completa de servicios, inventario, clientas y reportes está en el panel web. Desde el teléfono podés
-        llevar la agenda del día.
+        La gestión completa de servicios, clientas y reportes está en el panel web. Desde el teléfono llevás la agenda
+        del día y revisás el inventario. Los dos leen la misma base de datos en Firestore.
       </Text>
-      <Boton titulo="Restaurar datos de demostración" icono="rotate-ccw" variante="secundario" onPress={restaurar} style={styles.restaurar} />
       <Boton
         titulo="Cerrar sesión"
         icono="log-out"
@@ -177,6 +163,5 @@ const styles = StyleSheet.create({
   nombre: { fontFamily: fonts.display, fontSize: 22, color: colors.white },
   rol: { alignSelf: 'flex-start', marginTop: 10, borderWidth: 1, borderColor: colors.wisteriaBlue, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
   rolTexto: { fontFamily: fonts.semibold, fontSize: 11, color: colors.wisteriaBlue },
-  restaurar: { marginBottom: 12 },
   nota: { fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, lineHeight: 19, marginBottom: 20 },
 });

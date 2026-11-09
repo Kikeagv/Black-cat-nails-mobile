@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
+import { comprimirImagen } from '@/utils/imagenes';
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BarraInferior, Boton, CampoTexto, Encabezado, IndicadorPasos, Pantalla } from '@/components';
@@ -44,7 +45,13 @@ export function AgendarConfirmacionScreen({ navigation }: Props) {
       allowsEditing: true,
       quality: 0.7,
     });
-    if (!res.canceled) setImagen(res.assets[0].uri);
+    if (res.canceled) return;
+    try {
+      // Se reduce a 600 px para guardarla dentro del documento de la cita en Firestore.
+      setImagen(await comprimirImagen(res.assets[0].uri, 600, 0.6));
+    } catch (e) {
+      avisar('No se pudo adjuntar la imagen', mensajeDeError(e));
+    }
   };
 
   const verPolitica = () =>

@@ -19,9 +19,11 @@ export type ClientaStackParams = {
   AgendarFecha: undefined;
   AgendarConfirmacion: undefined;
   AgendarExito: { citaId: string };
+  Actividad: undefined;
 };
 
 export type AdminTabsParams = {
   Agenda: undefined;
+  Inventario: undefined;
   PerfilAdmin: undefined;
 };

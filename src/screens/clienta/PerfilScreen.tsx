@@ -8,13 +8,13 @@ import { useEffect, useState } from 'react';
 import { Image, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Boton, CampoTexto, Encabezado, Pantalla } from '@/components';
 import { useAuth } from '@/context';
-import { contarReferidas, DESCUENTO_REFERIDO } from '@/domain';
+import { DESCUENTO_REFERIDO } from '@/domain';
 import { ClientaStackParams, ClientaTabsParams } from '@/navigation/tipos';
 import { perfilSchema } from '@/schemas/perfil';
 import { authService, mensajeDeError } from '@/services';
 import { colors, fonts, radius } from '@/theme/tokens';
-import { Usuaria } from '@/types';
 import { avisar, confirmar } from '@/utils/dialogos';
+import { comprimirImagen } from '@/utils/imagenes';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<ClientaTabsParams, 'Perfil'>,
@@ -23,23 +23,33 @@ type Props = CompositeScreenProps<
 
 type CampoEditable = 'correo' | 'telefono';
 
-/** Figma: m6-perfil-referidos. Datos de contacto editables y módulo de referidos. */
+/**
+ * Figma: m6-perfil-referidos. Datos de contacto editables y módulo de referidos.
+ * Foro 2: el perfil vive en Firestore (usuarias/{uid}), la foto se guarda como
+ * miniatura y las referidas se consultan en la colección `referidos`.
+ */
 export function PerfilScreen({ navigation }: Props) {
   const { usuaria, actualizarPerfil, logout } = useAuth();
   const [editando, setEditando] = useState<CampoEditable | null>(null);
   const [valor, setValor] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [guardando, setGuardando] = useState(false);
-  const [referidas, setReferidas] = useState<Usuaria[]>([]);
+  const [referidas, setReferidas] = useState<{ id: string; nombre: string }[]>([]);
   const [copiado, setCopiado] = useState(false);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const codigo = usuaria?.codigoReferido;
 
   useEffect(() => {
-    if (!usuaria) return;
-    authService.listarUsuarias().then((todas) => setReferidas(todas.filter((u) => u.referidaPor === usuaria.codigoReferido)));
-  }, [usuaria]);
+    if (!codigo) return;
+    authService
+      .listarReferidas(codigo)
+      .then(setReferidas)
+      .catch(() => setReferidas([]));
+  }, [codigo]);
 
   if (!usuaria) return null;
-  const totalReferidas = contarReferidas(usuaria, [...referidas]);
+  const totalReferidas = referidas.length;
+  const conGoogle = usuaria.proveedor === 'google';
 
   const empezarEdicion = (campo: CampoEditable) => {
     setEditando(campo);
@@ -53,8 +63,9 @@ export function PerfilScreen({ navigation }: Props) {
     if (!res.success) return setError(res.error.issues[0].message);
     setGuardando(true);
     try {
-      await actualizarPerfil({ [editando]: res.data });
+      const aviso = await actualizarPerfil({ [editando]: res.data });
       setEditando(null);
+      if (aviso) avisar('Confirmá tu correo nuevo', aviso);
     } catch (e) {
       setError(mensajeDeError(e));
     } finally {
@@ -74,7 +85,15 @@ export function PerfilScreen({ navigation }: Props) {
       aspect: [1, 1],
       quality: 0.6,
     });
-    if (!res.canceled) await actualizarPerfil({ fotoUri: res.assets[0].uri });
+    if (res.canceled) return;
+    setSubiendoFoto(true);
+    try {
+      await actualizarPerfil({ fotoUri: await comprimirImagen(res.assets[0].uri) });
+    } catch (e) {
+      avisar('No se pudo cambiar la foto', mensajeDeError(e));
+    } finally {
+      setSubiendoFoto(false);
+    }
   };
 
   const copiar = async () => {
@@ -124,7 +143,7 @@ export function PerfilScreen({ navigation }: Props) {
             </View>
           )}
           <View style={styles.camara}>
-            <Feather name="camera" size={14} color={colors.white} />
+            <Feather name={subiendoFoto ? 'loader' : 'camera'} size={14} color={colors.white} />
           </View>
         </Pressable>
         <Text style={styles.nombre}>{usuaria.nombre}</Text>
@@ -159,9 +178,13 @@ export function PerfilScreen({ navigation }: Props) {
                   {campo === 'telefono' ? `+503 ${usuaria.telefono.slice(0, 4)} ${usuaria.telefono.slice(4)}` : usuaria.correo}
                 </Text>
               </View>
-              <Pressable onPress={() => empezarEdicion(campo)} hitSlop={10} accessibilityLabel={`Editar ${etiqueta.toLowerCase()}`}>
-                <Feather name="edit-2" size={16} color={colors.petalPink} />
-              </Pressable>
+              {campo === 'correo' && conGoogle ? (
+                <Feather name="lock" size={16} color={colors.textSubtle} accessibilityLabel="Correo de Google" />
+              ) : (
+                <Pressable onPress={() => empezarEdicion(campo)} hitSlop={10} accessibilityLabel={`Editar ${etiqueta.toLowerCase()}`}>
+                  <Feather name="edit-2" size={16} color={colors.petalPink} />
+                </Pressable>
+              )}
             </View>
           )
         )}
@@ -201,6 +224,15 @@ export function PerfilScreen({ navigation }: Props) {
           </Pressable>
         </View>
       </View>
+
+      <Pressable onPress={() => navigation.navigate('Actividad')} style={styles.enlaceActividad} accessibilityRole="button">
+        <Feather name="clock" size={18} color={colors.wisteriaBlue} />
+        <View style={styles.flex}>
+          <Text style={styles.campoValor}>Mi actividad</Text>
+          <Text style={styles.campoEtiqueta}>Citas, cambios de perfil e inicios de sesión</Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.textMuted} />
+      </Pressable>
 
       <Boton titulo="Cerrar sesión" icono="log-out" variante="contorno" onPress={cerrarSesion} style={styles.salir} />
     </Pantalla>
@@ -273,5 +305,16 @@ const styles = StyleSheet.create({
   corazon: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center' },
   referidasTexto: { flex: 1, fontFamily: fonts.medium, fontSize: 13, color: colors.white },
   verLista: { fontFamily: fonts.medium, fontSize: 13, color: colors.petalPink, textDecorationLine: 'underline' },
+  enlaceActividad: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+  },
   salir: { marginTop: 20 },
 });

@@ -10,3 +10,4 @@ export * from './BarraInferior';
 export * from './Logo';
 export * from './Tarjetas';
 export * from './TarjetaCita';
+export * from './BotonGoogle';

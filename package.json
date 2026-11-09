@@ -8,15 +8,20 @@
     "@expo/metro-runtime": "~58.0.15",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-google-signin/google-signin": "^17.0.0",
     "@react-navigation/bottom-tabs": "^7.21.0",
     "@react-navigation/native": "^7.5.1",
     "@react-navigation/native-stack": "^7.21.0",
     "expo": "~58.0.17",
     "expo-clipboard": "~58.0.4",
+    "expo-constants": "~58.0.13",
     "expo-crypto": "~58.0.7",
+    "expo-dev-client": "~58.0.14",
     "expo-font": "~58.0.9",
+    "expo-image-manipulator": "~58.0.15",
     "expo-image-picker": "~58.0.10",
     "expo-status-bar": "~58.0.4",
+    "firebase": "^13.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
@@ -30,11 +35,20 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "tsx scripts/seed-firestore.ts",
+    "seed:emuladores": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 GCLOUD_PROJECT=demo-black-cat-nails tsx scripts/seed-firestore.ts --reset",
+    "emuladores": "npx firebase-tools@15 emulators:start --project demo-black-cat-nails",
+    "reglas:deploy": "npx firebase-tools@15 deploy --only firestore:rules,firestore:indexes",
+    "ios:build": "expo run:ios",
+    "test:reglas": "tsx scripts/probar-reglas.ts"
   },
   "private": true,
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/react": "~19.2",
+    "firebase-admin": "^14.5.0",
+    "tsx": "^4.23.15",
     "typescript": "~5.9"
   }
 }

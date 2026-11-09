@@ -2,9 +2,11 @@
  * NAVEGACIÓN RAÍZ
  *
  * Decide qué árbol de pantallas existe según la sesión y el rol:
+ * - Firebase sin configurar: pantalla con los pasos para crear el .env.
  * - Sin sesión: Login y Registro.
+ * - Entró con Google por primera vez: completar perfil (teléfono).
  * - Clienta: pestañas (Inicio, Diseños, Mis citas, Perfil) + detalle y flujo de agendamiento.
- * - Administradora: pestañas Agenda y Mi cuenta.
+ * - Administradora: pestañas Agenda, Inventario y Mi cuenta.
  *
  * Como cada árbol solo se monta para su rol, una clienta no tiene forma de
  * navegar a una pantalla de administración (rutas protegidas por rol).
@@ -16,12 +18,17 @@ import { DarkTheme, NavigationContainer, Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { EstadoCargando } from '@/components';
 import { useAuth } from '@/context';
+import { firebaseConfigurado, usarEmuladores } from '@/config/firebase';
 import { AgendaAdminScreen, PerfilAdminScreen } from '@/screens/admin/AgendaAdminScreen';
+import { InventarioScreen } from '@/screens/admin/InventarioScreen';
 import { AgendarConfirmacionScreen } from '@/screens/agendar/AgendarConfirmacionScreen';
 import { AgendarExitoScreen } from '@/screens/agendar/AgendarExitoScreen';
 import { AgendarFechaScreen } from '@/screens/agendar/AgendarFechaScreen';
 import { AgendarServiciosScreen } from '@/screens/agendar/AgendarServiciosScreen';
+import { CompletarPerfilScreen } from '@/screens/auth/CompletarPerfilScreen';
+import { ConfigurarFirebaseScreen } from '@/screens/auth/ConfigurarFirebaseScreen';
 import { LoginScreen } from '@/screens/auth/LoginScreen';
+import { ActividadScreen } from '@/screens/clienta/ActividadScreen';
 import { RegistroScreen } from '@/screens/auth/RegistroScreen';
 import { DisenoDetalleScreen } from '@/screens/clienta/DisenoDetalleScreen';
 import { GaleriaScreen } from '@/screens/clienta/GaleriaScreen';
@@ -100,6 +107,7 @@ function NavegacionClienta() {
       <ClientaStack.Screen name="AgendarFecha" component={AgendarFechaScreen} />
       <ClientaStack.Screen name="AgendarConfirmacion" component={AgendarConfirmacionScreen} />
       <ClientaStack.Screen name="AgendarExito" component={AgendarExitoScreen} options={{ gestureEnabled: false }} />
+      <ClientaStack.Screen name="Actividad" component={ActividadScreen} />
     </ClientaStack.Navigator>
   );
 }
@@ -111,6 +119,11 @@ function NavegacionAdmin() {
         name="Agenda"
         component={AgendaAdminScreen}
         options={{ tabBarIcon: ({ color }) => <Feather name="calendar" size={22} color={color} /> }}
+      />
+      <AdminTabs.Screen
+        name="Inventario"
+        component={InventarioScreen}
+        options={{ tabBarIcon: ({ color }) => <Feather name="package" size={22} color={color} /> }}
       />
       <AdminTabs.Screen
         name="PerfilAdmin"
@@ -131,7 +144,9 @@ function NavegacionAuth() {
 }
 
 export function RootNavigator() {
-  const { usuaria, restaurando } = useAuth();
+  const { usuaria, perfilPendiente, restaurando } = useAuth();
+
+  if (!firebaseConfigurado && !usarEmuladores) return <ConfigurarFirebaseScreen />;
 
   if (restaurando) {
     return (
@@ -143,7 +158,13 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer theme={tema}>
-      {!usuaria ? <NavegacionAuth /> : usuaria.rol === 'admin' ? <NavegacionAdmin /> : <NavegacionClienta />}
+      {usuaria ? (
+        usuaria.rol === 'admin' ? <NavegacionAdmin /> : <NavegacionClienta />
+      ) : perfilPendiente ? (
+        <CompletarPerfilScreen />
+      ) : (
+        <NavegacionAuth />
+      )}
     </NavigationContainer>
   );
 }

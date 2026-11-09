@@ -1,13 +1,17 @@
 /**
- * CatalogoContext — servicios activos, galería de diseños y favoritos.
+ * CatalogoContext — servicios activos (Firestore), galería de diseños y favoritos.
+ *
+ * Los favoritos viven en usuarias/{uid}/favoritos y se escuchan en tiempo real.
+ * Al tocar el corazón se actualiza la interfaz de inmediato (optimista) y, si
+ * Firestore rechaza la escritura, se revierte.
  *
  * Separado de la agenda para que marcar un favorito no redibuje las pantallas
  * de citas (decisión de providers desacoplados de la Etapa 1).
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { catalogoService, mensajeDeError } from '@/services';
+import { avisar } from '@/utils/dialogos';
 import { Diseno, Servicio } from '@/types';
 import { useAuth } from './AuthContext';
 
@@ -31,7 +35,7 @@ export function CatalogoProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [favoritos, setFavoritos] = useState<string[]>([]);
 
-  const claveFavoritos = usuaria ? `bcn:favoritos:${usuaria.id}` : null;
+  const uid = usuaria?.id;
 
   const recargar = useCallback(async () => {
     setCargando(true);
@@ -48,24 +52,28 @@ export function CatalogoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (usuaria) recargar();
-  }, [usuaria, recargar]);
+    if (uid) recargar();
+  }, [uid, recargar]);
 
-  // Los favoritos son por usuaria y se guardan en el dispositivo.
+  // Los favoritos son por usuaria y se sincronizan con Firestore.
   useEffect(() => {
-    if (!claveFavoritos) return setFavoritos([]);
-    AsyncStorage.getItem(claveFavoritos).then((v) => setFavoritos(v ? JSON.parse(v) : []));
-  }, [claveFavoritos]);
+    if (!uid) return setFavoritos([]);
+    return catalogoService.observarFavoritos(uid, setFavoritos, (m) => setError(m));
+  }, [uid]);
 
   const alternarFavorito = useCallback(
     (disenoId: string) => {
-      setFavoritos((prev) => {
-        const next = prev.includes(disenoId) ? prev.filter((id) => id !== disenoId) : [...prev, disenoId];
-        if (claveFavoritos) AsyncStorage.setItem(claveFavoritos, JSON.stringify(next));
-        return next;
+      if (!uid) return;
+      const diseno = disenos.find((d) => d.id === disenoId);
+      if (!diseno) return;
+      const marcar = !favoritos.includes(disenoId);
+      setFavoritos((prev) => (marcar ? [...prev, disenoId] : prev.filter((id) => id !== disenoId)));
+      catalogoService.alternarFavorito(uid, diseno, marcar).catch((e) => {
+        setFavoritos((prev) => (marcar ? prev.filter((id) => id !== disenoId) : [...prev, disenoId]));
+        avisar('No se pudo guardar', mensajeDeError(e));
       });
     },
-    [claveFavoritos]
+    [uid, disenos, favoritos]
   );
 
   const value = useMemo(

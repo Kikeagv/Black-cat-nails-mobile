@@ -1,21 +1,28 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ComponentRef, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Boton, CampoTexto, Logo, Pantalla } from '@/components';
+import { Boton, BotonGoogle, CampoTexto, Divisor, Logo, Pantalla } from '@/components';
 import { useAuth } from '@/context';
 import { useZodForm } from '@/hooks/useZodForm';
 import { AuthStackParams } from '@/navigation/tipos';
 import { loginSchema } from '@/schemas/auth';
-import { mensajeDeError } from '@/services';
+import { mensajeDeError, ServiceError } from '@/services';
 import { colors, fonts, radius } from '@/theme/tokens';
+import { avisar } from '@/utils/dialogos';
 
 type Props = NativeStackScreenProps<AuthStackParams, 'Login'>;
 
-/** Figma: login-default, login-error-state y login-loading-state. */
+/**
+ * Figma: login-default, login-error-state y login-loading-state.
+ * Foro 2: Firebase Authentication con correo/contraseña y con Google,
+ * más recuperación de contraseña por correo.
+ */
 export function LoginScreen({ navigation }: Props) {
-  const { login } = useAuth();
+  const { login, loginConGoogle, recuperarPassword } = useAuth();
   const { valores, errores, enviando, cambiar, salir, enviar } = useZodForm(loginSchema, { correo: '', password: '' });
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
+  const [conGoogle, setConGoogle] = useState(false);
+  const ocupado = enviando || conGoogle;
   const passwordRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   const onSubmit = () =>
@@ -28,6 +35,32 @@ export function LoginScreen({ navigation }: Props) {
         setErrorGeneral(mensajeDeError(e));
       }
     });
+
+  const entrarConGoogle = async () => {
+    setErrorGeneral(null);
+    setConGoogle(true);
+    try {
+      await loginConGoogle();
+    } catch (e) {
+      // Cerrar la ventana de Google no es un error que haya que mostrar.
+      if (!(e instanceof ServiceError && e.code === 'cancelado')) setErrorGeneral(mensajeDeError(e));
+    } finally {
+      setConGoogle(false);
+    }
+  };
+
+  const olvideMiPassword = async () => {
+    setErrorGeneral(null);
+    try {
+      await recuperarPassword(valores.correo);
+      avisar(
+        'Revisá tu correo',
+        `Si ${valores.correo.trim()} tiene una cuenta, te llegará un enlace para crear una contraseña nueva.`
+      );
+    } catch (e) {
+      setErrorGeneral(mensajeDeError(e));
+    }
+  };
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -55,7 +88,7 @@ export function LoginScreen({ navigation }: Props) {
             onBlur={() => salir('correo')}
             onSubmitEditing={() => passwordRef.current?.focus()}
             error={errores.correo}
-            editable={!enviando}
+            editable={!ocupado}
           />
           <CampoTexto
             ref={passwordRef}
@@ -69,15 +102,22 @@ export function LoginScreen({ navigation }: Props) {
             onBlur={() => salir('password')}
             onSubmitEditing={onSubmit}
             error={errores.password}
-            editable={!enviando}
+            editable={!ocupado}
           />
+          <Pressable onPress={olvideMiPassword} disabled={ocupado} hitSlop={8} style={styles.olvide}>
+            <Text style={styles.enlaceChico}>¿Olvidaste tu contraseña?</Text>
+          </Pressable>
         </View>
 
-        <Boton titulo="Iniciar sesión" onPress={onSubmit} cargando={enviando} />
+        <View style={styles.acciones}>
+          <Boton titulo="Iniciar sesión" onPress={onSubmit} cargando={enviando} deshabilitado={conGoogle} />
+          <Divisor />
+          <BotonGoogle onPress={entrarConGoogle} cargando={conGoogle} deshabilitado={enviando} />
+        </View>
 
         <View style={styles.pie}>
           <Text style={styles.pieTexto}>¿No tenés cuenta?</Text>
-          <Pressable onPress={() => navigation.navigate('Registro')} disabled={enviando} hitSlop={8}>
+          <Pressable onPress={() => navigation.navigate('Registro')} disabled={ocupado} hitSlop={8}>
             <Text style={styles.enlace}>Registrate</Text>
           </Pressable>
         </View>
@@ -100,7 +140,10 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   alertaTexto: { fontFamily: fonts.medium, fontSize: 13, color: colors.error, textAlign: 'center' },
-  pie: { flexDirection: 'row', justifyContent: 'center', gap: 4, paddingTop: 16 },
+  acciones: { gap: 16 },
+  olvide: { alignSelf: 'flex-end', marginTop: -4 },
+  enlaceChico: { fontFamily: fonts.medium, fontSize: 13, color: colors.wisteriaBlue },
+  pie: { flexDirection: 'row', justifyContent: 'center', gap: 4, paddingTop: 8 },
   pieTexto: { fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted },
   enlace: { fontFamily: fonts.semibold, fontSize: 14, color: colors.wisteriaBlue },
 });

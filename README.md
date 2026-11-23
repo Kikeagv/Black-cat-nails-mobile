@@ -47,7 +47,7 @@ Docente: Alexander Alberto Siguenza Campos · DPS941 G01T · Facultad de Ingenie
 
 | Recurso | Enlace |
 | --- | --- |
-| Despliegue web (Vercel) | [black-cat-nails-web.vercel.app](https://black-cat-nails-web.vercel.app) |
+| Despliegue web (Vercel) | [black-cat-nails.vercel.app](https://black-cat-nails.vercel.app) |
 | Prototipo en Figma | [Black Cat Nails · Figma](https://www.figma.com/design/HuzR5fGLVFFeSiOJksZZls/CN?node-id=92-2) (exportado también en [`docs/mockups/`](docs/mockups)) |
 | Video del Avance 2 | [youtu.be/A5dQKUByHSs](https://youtu.be/A5dQKUByHSs) |
 

@@ -2,6 +2,8 @@
 
 Sistema de gestión de citas para el emprendimiento de manicura **Black Cat Nails by Vante**, desarrollado como proyecto de cátedra de **DPS941 (Diseño y Programación de Software Multiplataforma)** en la **Universidad Don Bosco**. Tiene dos clientes que comparten un mismo backend en Firebase:
 
+Video defensa final: https://udbedu-my.sharepoint.com/:v:/g/personal/gv200136_alumno_udb_edu_sv/IQAM6WHkOUFlRL1TrRaQjW9vAT75IO58MNDSPiTvWfNOeyQ?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=Q9xsGV
+
 - **App móvil** (raíz del repositorio): React Native con Expo, para las clientas y la administradora.
 - **Versión web** ([`web/`](web)): Next.js 16, con el portal de clientas y el panel administrativo.
 
